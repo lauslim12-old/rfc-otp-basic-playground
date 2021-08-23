@@ -18,4 +18,8 @@ docker-compose up -d
 make start
 ```
 
-- Test out API endpoints with Postman.
+- Run unit tests.
+
+```bash
+make test
+```
