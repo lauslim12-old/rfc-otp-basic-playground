@@ -52,6 +52,15 @@ func TestPad(t *testing.T) {
 			t.Error("The end result of the padding should be '001234'!")
 		}
 	})
+
+	t.Run("test_enough_padding", func(t *testing.T) {
+		inputOTP, inputDigits := 123456, 6
+
+		res := pad(inputOTP, inputDigits)
+		if res != "123456" {
+			t.Error("The end result of the padding should be '123456'!")
+		}
+	})
 }
 
 func TestGenerate(t *testing.T) {
