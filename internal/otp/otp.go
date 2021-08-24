@@ -12,6 +12,25 @@ import (
 	"strings"
 )
 
+// TOTPConfig in order to act as a baseline of TOTP configurations.
+type TOTPConfig struct {
+	Secret    string           // OTP shared secret.
+	Period    int64            // Period of the token will be validated.
+	Timestamp int64            // Timestamp or current time in UNIX time.
+	Digits    int              // Digits requested for the OTP.
+	Hasher    func() hash.Hash // Hash algorithm for the OTP.
+}
+
+// TOTPValidateConfig to configure validation parameters.
+type TOTPValidateConfig struct {
+	Secret    string           // OTP shared secret.
+	Period    int64            // Period of the token will be validated.
+	Timestamp int64            // Timestamp or current time in UNIX time.
+	Digits    int              // Digits requested for the OTP.
+	Hasher    func() hash.Hash // Hash algorithm for the OTP.
+	Window    int64            // How long in a timeframe should an OTP be tolerated.
+}
+
 // This function is an utility function to convert a secret (base32 encoded) into byte form.
 func transformSecret(sharedSecret string) ([]byte, error) {
 	// Transform into bytes.
@@ -41,24 +60,31 @@ func pad(otp, digits int) string {
 
 // This function will validate a TOTP using constant time compare.
 // Window is used as the interval - the window of counter values to test.
-func Verify(otp *string, counter int64, digits int, secret string, hasher func() hash.Hash) (bool, error) {
-	var window int64 = 1
-	passcode := strings.TrimSpace(*otp)
+func Verify(otp string, options TOTPValidateConfig) (bool, error) {
+	// Remove whitespaces from the passed OTP and calculate counter.
+	passcode := strings.TrimSpace(otp)
+	counter := options.Timestamp / options.Period
 
 	// Check if the length of the OTP is not equal to specified digits.
-	if len(passcode) != digits {
+	if len(passcode) != options.Digits {
 		return false, errors.New("passcode is not equal to the specified digits in length")
 	}
 
 	// We will try to safely compare two strings at a single moment.
-	// Also try to generate tokens in allowed windows. If one match, then allow token is valid.
-	for i := counter - window; i <= counter+window; i++ {
-		generatedToken, err := Generate(i, digits, secret, hasher)
+	// Also try to generate tokens in allowed windows. If one match, then that token is valid.
+	for i := counter - options.Window; i <= counter+options.Window; i++ {
+		generatedToken, err := Generate(TOTPConfig{
+			Secret:    options.Secret,
+			Period:    options.Period,
+			Timestamp: options.Timestamp,
+			Digits:    options.Digits,
+			Hasher:    options.Hasher,
+		})
 		if err != nil {
 			return false, err
 		}
 
-		if subtle.ConstantTimeCompare([]byte(passcode), []byte(*generatedToken)) == 1 {
+		if subtle.ConstantTimeCompare([]byte(passcode), []byte(generatedToken)) == 1 {
 			return true, nil
 		}
 	}
@@ -66,18 +92,15 @@ func Verify(otp *string, counter int64, digits int, secret string, hasher func()
 	return false, nil
 }
 
-// This function will return generate a new OTP.
-// Will take a counter in the form of UNIX time.
+// This function will generate a new OTP. In this case, it's TOTP.
 // Reference: https://datatracker.ietf.org/doc/html/rfc6238.
-func Generate(counter int64, digits int, secret string, hasher func() hash.Hash) (*string, error) {
-	// Check if counter is a negative number.
-	if counter < 0 {
-		return nil, errors.New("input must be positive integer")
-	}
+func Generate(options TOTPConfig) (string, error) {
+	// Calculate counters.
+	counter := options.Timestamp / options.Period
 
 	// Removes whitespaces for some secrets.
 	// Transform to uppercase to conform to the RFC.
-	secretTrimmed := strings.TrimSpace(secret)
+	secretTrimmed := strings.TrimSpace(options.Secret)
 	secretTrimmed = strings.ToUpper(secretTrimmed)
 
 	// Transform 'counter' into a byte array.
@@ -86,11 +109,11 @@ func Generate(counter int64, digits int, secret string, hasher func() hash.Hash)
 	// Transform 'secret' into a byte array.
 	secretInBytes, err := transformSecret(secretTrimmed)
 	if err != nil {
-		return nil, err
+		return "", err
 	}
 
 	// Create a new OTP token based on the inputs.
-	hmac := hmac.New(hasher, secretInBytes)
+	hmac := hmac.New(options.Hasher, secretInBytes)
 	hmac.Write(counterInBytes)
 	digest := hmac.Sum(nil)
 
@@ -101,11 +124,11 @@ func Generate(counter int64, digits int, secret string, hasher func() hash.Hash)
 		((int(digest[offset+1] & 255)) << 16) |
 		((int(digest[offset+2] & 255)) << 8) |
 		(int(digest[offset+3] & 255))
-	otp = otp % int(math.Pow10(digits))
+	otp = otp % int(math.Pow10(options.Digits))
 
 	// Pad the OTP with leading zeroes.
-	token := pad(otp, digits)
+	token := pad(otp, options.Digits)
 
 	// Return the newly created OTP.
-	return &token, nil
+	return token, nil
 }
