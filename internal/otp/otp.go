@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"hash"
 	"math"
+	"strings"
 )
 
 // This function is an utility function to convert a secret (base32 encoded) into byte form.
@@ -46,11 +47,14 @@ func Generate(counter int64, digits int, secret string, hasher func() hash.Hash)
 		return nil, errors.New("input must be positive integer")
 	}
 
+	// Removes whitespaces for some secrets.
+	secretTrimmed := strings.TrimSpace(secret)
+
 	// Transform 'counter' into a byte array.
 	counterInBytes := transformCounter(counter)
 
 	// Transform 'secret' into a byte array.
-	secretInBytes, err := transformSecret(secret)
+	secretInBytes, err := transformSecret(secretTrimmed)
 	if err != nil {
 		return nil, err
 	}
