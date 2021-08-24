@@ -225,6 +225,46 @@ func TestVerify(t *testing.T) {
 			secret:          sharedSecret,
 			hasher:          sha512.New,
 		},
+		{
+			name:            "test_otp_10_seconds",
+			otp:             "1941056642", // OTP generated at 1629787672
+			verifyTimestamp: 1629787682,
+			digits:          10,
+			secret:          sharedSecret,
+			hasher:          sha512.New,
+		},
+		{
+			name:            "test_otp_15_seconds",
+			otp:             "1941056642", // OTP generated at 1629787672
+			verifyTimestamp: 1629787687,
+			digits:          10,
+			secret:          sharedSecret,
+			hasher:          sha512.New,
+		},
+		{
+			name:            "test_otp_20_seconds",
+			otp:             "1941056642", // OTP generated at 1629787672
+			verifyTimestamp: 1629787692,
+			digits:          10,
+			secret:          sharedSecret,
+			hasher:          sha512.New,
+		},
+		{
+			name:            "test_otp_25_seconds",
+			otp:             "1941056642", // OTP generated at 1629787672
+			verifyTimestamp: 1629787697,
+			digits:          10,
+			secret:          sharedSecret,
+			hasher:          sha512.New,
+		},
+		{
+			name:            "test_otp_30_seconds",
+			otp:             "1941056642", // OTP generated at 1629787672
+			verifyTimestamp: 1629787702,
+			digits:          10,
+			secret:          sharedSecret,
+			hasher:          sha512.New,
+		},
 	}
 
 	for _, tt := range errorTests {
