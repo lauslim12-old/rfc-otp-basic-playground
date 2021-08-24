@@ -2,6 +2,7 @@ package otp
 
 import (
 	"crypto/hmac"
+	"crypto/subtle"
 	"encoding/base32"
 	"encoding/binary"
 	"errors"
@@ -48,7 +49,9 @@ func Generate(counter int64, digits int, secret string, hasher func() hash.Hash)
 	}
 
 	// Removes whitespaces for some secrets.
+	// Transform to uppercase to conform to the RFC.
 	secretTrimmed := strings.TrimSpace(secret)
+	secretTrimmed = strings.ToUpper(secretTrimmed)
 
 	// Transform 'counter' into a byte array.
 	counterInBytes := transformCounter(counter)
