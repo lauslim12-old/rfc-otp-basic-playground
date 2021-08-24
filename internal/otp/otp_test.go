@@ -232,6 +232,18 @@ func TestVerify(t *testing.T) {
 				Window:    1,
 			},
 		},
+		{
+			name: "test_invalid_random_otp",
+			otp:  "1234567890",
+			totpValidation: TOTPValidateConfig{
+				Secret:    sharedSecret,
+				Period:    int64(period),
+				Timestamp: 1629787555,
+				Digits:    10,
+				Hasher:    sha512.New,
+				Window:    1,
+			},
+		},
 	}
 
 	successTests := []struct {
