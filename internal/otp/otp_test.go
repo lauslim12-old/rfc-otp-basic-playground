@@ -178,13 +178,13 @@ func TestVerify(t *testing.T) {
 			},
 		},
 		{
-			name: "test_otp_fail_counter",
+			name: "test_otp_invalid_secret_base32",
 			otp:  "000000",
 			totpValidation: TOTPValidateConfig{
-				Secret:    sharedSecret,
+				Secret:    "invalid_base32",
 				Period:    int64(period),
-				Timestamp: -1,
-				Digits:    10,
+				Timestamp: 1629780615,
+				Digits:    6,
 				Hasher:    sha512.New,
 				Window:    1,
 			},
