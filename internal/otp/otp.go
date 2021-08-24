@@ -71,7 +71,7 @@ func Verify(otp string, options TOTPValidateConfig) (bool, error) {
 	}
 
 	// We will try to safely compare two strings at a single moment.
-	// Also try to generate tokens in allowed windows. If one match, then allow token is valid.
+	// Also try to generate tokens in allowed windows. If one match, then that token is valid.
 	for i := counter - options.Window; i <= counter+options.Window; i++ {
 		generatedToken, err := Generate(TOTPConfig{
 			Secret:    options.Secret,
@@ -92,8 +92,7 @@ func Verify(otp string, options TOTPValidateConfig) (bool, error) {
 	return false, nil
 }
 
-// This function will return generate a new OTP.
-// Will take a counter in the form of UNIX time.
+// This function will generate a new OTP. In this case, it's TOTP.
 // Reference: https://datatracker.ietf.org/doc/html/rfc6238.
 func Generate(options TOTPConfig) (string, error) {
 	// Calculate counters.
