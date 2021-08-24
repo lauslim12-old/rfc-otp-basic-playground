@@ -27,7 +27,19 @@ func main() {
 
 	// Get my OTP.
 	success := fmt.Sprintf(
-		"My OTP is '%s', with shared secret '%s', with the counter being '%d'.", *token, sharedSecret, counter,
+		"My OTP is '%s', with shared secret '%s', with the counter being '%d' and current time being '%d'.", *token, sharedSecret, counter, currentTime,
 	)
 	fmt.Println(success)
+
+	// Verify my OTP.
+	currentTimeMore := time.Now().Add(30*time.Second).Unix() / int64(period)
+
+	res, err := otp.Verify(token, currentTimeMore, digits, sharedSecret, hashFunction)
+	if err != nil {
+		panic(err)
+	}
+
+	// Get result.
+	validOTP := fmt.Sprintf("My OTP validity is %v.", res)
+	fmt.Println(validOTP)
 }

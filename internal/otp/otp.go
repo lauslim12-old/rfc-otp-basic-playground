@@ -2,12 +2,14 @@ package otp
 
 import (
 	"crypto/hmac"
+	"crypto/subtle"
 	"encoding/base32"
 	"encoding/binary"
 	"errors"
 	"fmt"
 	"hash"
 	"math"
+	"strings"
 )
 
 // This function is an utility function to convert a secret (base32 encoded) into byte form.
@@ -37,6 +39,33 @@ func pad(otp, digits int) string {
 	return fmt.Sprintf(fmt.Sprintf("%%0%dd", digits), otp)
 }
 
+// This function will validate a TOTP using constant time compare.
+// Window is used as the interval - the window of counter values to test.
+func Verify(otp *string, counter int64, digits int, secret string, hasher func() hash.Hash) (bool, error) {
+	var window int64 = 1
+	passcode := strings.TrimSpace(*otp)
+
+	// Check if the length of the OTP is not equal to specified digits.
+	if len(passcode) != digits {
+		return false, errors.New("passcode is not equal to the specified digits in length")
+	}
+
+	// We will try to safely compare two strings at a single moment.
+	// Also try to generate tokens in allowed windows. If one match, then allow token is valid.
+	for i := counter - window; i <= counter+window; i++ {
+		generatedToken, err := Generate(i, digits, secret, hasher)
+		if err != nil {
+			return false, err
+		}
+
+		if subtle.ConstantTimeCompare([]byte(passcode), []byte(*generatedToken)) == 1 {
+			return true, nil
+		}
+	}
+
+	return false, nil
+}
+
 // This function will return generate a new OTP.
 // Will take a counter in the form of UNIX time.
 // Reference: https://datatracker.ietf.org/doc/html/rfc6238.
@@ -46,11 +75,16 @@ func Generate(counter int64, digits int, secret string, hasher func() hash.Hash)
 		return nil, errors.New("input must be positive integer")
 	}
 
+	// Removes whitespaces for some secrets.
+	// Transform to uppercase to conform to the RFC.
+	secretTrimmed := strings.TrimSpace(secret)
+	secretTrimmed = strings.ToUpper(secretTrimmed)
+
 	// Transform 'counter' into a byte array.
 	counterInBytes := transformCounter(counter)
 
 	// Transform 'secret' into a byte array.
-	secretInBytes, err := transformSecret(secret)
+	secretInBytes, err := transformSecret(secretTrimmed)
 	if err != nil {
 		return nil, err
 	}
