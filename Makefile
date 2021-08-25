@@ -10,6 +10,7 @@ build:
 format:
 	test -z $(gofmt -l .)
 
-.PHONY:
+.PHONY: test
 test:
 	go test -v -coverpkg ./internal/otp ./internal/otp
+	go test -v -coverpkg ./internal/application ./internal/application
