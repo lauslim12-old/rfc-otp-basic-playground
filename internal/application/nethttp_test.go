@@ -322,11 +322,13 @@ func TestVerifyHandler(t *testing.T) {
 	}
 
 	for _, tt := range successTests {
-		r := httptest.NewRequest(http.MethodPost, "/api/v1/verify", nil)
-		w := httptest.NewRecorder()
-		r.SetBasicAuth(tt.username, tt.password)
-		handler.ServeHTTP(w, r)
+		t.Run(tt.name, func(t *testing.T) {
+			r := httptest.NewRequest(http.MethodPost, "/api/v1/verify", nil)
+			w := httptest.NewRecorder()
+			r.SetBasicAuth(tt.username, tt.password)
+			handler.ServeHTTP(w, r)
 
-		assert.Equal(t, tt.expectedStatus, w.Code)
+			assert.Equal(t, tt.expectedStatus, w.Code)
+		})
 	}
 }
