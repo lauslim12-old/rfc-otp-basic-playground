@@ -211,6 +211,7 @@ func Configure() http.Handler {
 			decodedBasicAuth, err := base64.StdEncoding.DecodeString(basicAuthInformation)
 			if err != nil {
 				sendFailureResponse(w, NewFailureResponse(http.StatusInternalServerError, err.Error()))
+				return
 			}
 
 			// Anonymous struct.
