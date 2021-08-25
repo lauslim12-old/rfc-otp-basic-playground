@@ -159,13 +159,13 @@ func Configure() http.Handler {
 
 	// Group routes.
 	r.Route("/api/v1", func(r chi.Router) {
-		// Sample GET request.
+		// Sample GET route.
 		r.Get("/", func(w http.ResponseWriter, r *http.Request) {
 			res := NewSuccessResponse(http.StatusOK, "Welcome to 'net/http' API!", nil)
 			sendSuccessResponse(w, res)
 		})
 
-		// Sample POST request that returns an OTP.
+		// Login route.
 		r.Post("/", func(w http.ResponseWriter, r *http.Request) {
 			authRequestBody := &AuthRequestBody{}
 			failureResponse := decodeJSONBody(w, r, authRequestBody)
@@ -201,7 +201,7 @@ func Configure() http.Handler {
 				Algorithm: otp.AlgorithmSHA512,
 			})
 			if err != nil {
-				sendFailureResponse(w, NewFailureResponse(http.StatusInternalServerError, err.Error()))
+				sendFailureResponse(w, NewFailureResponse(http.StatusBadRequest, err.Error()))
 				return
 			}
 
@@ -220,13 +220,78 @@ func Configure() http.Handler {
 				Username         string `json:"user"`
 				BasicAuthContent string `json:"basicAuth"`
 				DecodedBasicAuth string `json:"decodedBasic"`
+				SharedSecret     string `json:"sharedSecret"`
+				LoginTime        int64  `json:"loginTime"`
 			}{
 				OTP:              otp,
 				Username:         authRequestBody.Username,
 				BasicAuthContent: basicAuthContent,
 				DecodedBasicAuth: string(decodedBasicAuth),
+				SharedSecret:     sharedSecret,
+				LoginTime:        time.Now().Unix(),
 			}
 			sendSuccessResponse(w, NewSuccessResponse(http.StatusOK, "Sucessfully logged in!", responseData))
+		})
+
+		// Verification route.
+		r.Post("/verify", func(w http.ResponseWriter, r *http.Request) {
+			// Get the Authorization Header.
+			username, password, ok := r.BasicAuth()
+			if !ok {
+				w.Header().Set("WWW-Authenticate", `Basic realm="restricted", charset="UTF-8"`)
+				sendFailureResponse(w, NewFailureResponse(http.StatusUnauthorized, "Please provide an 'Authorization' header!"))
+				return
+			}
+
+			// Calculate SHA256 of the 'username'.
+			usernameHash := sha256.Sum256([]byte(username))
+			expectedUsernameHash := sha256.Sum256([]byte("kaede"))
+
+			// Verify OTP.
+			sharedSecret := base32.StdEncoding.EncodeToString([]byte(fmt.Sprintf("%sKIMURA", username)))
+			validOTP, err := totp.ValidateCustom(password, sharedSecret, time.Now(), totp.ValidateOpts{
+				Period:    30,
+				Skew:      1,
+				Digits:    10,
+				Algorithm: otp.AlgorithmSHA512,
+			})
+			if err != nil && err == otp.ErrValidateInputInvalidLength {
+				sendFailureResponse(w, NewFailureResponse(http.StatusBadRequest, "Your OTP does not conform to the length requirements of the validation server."))
+				return
+			}
+			if err != nil {
+				sendFailureResponse(w, NewFailureResponse(http.StatusBadRequest, err.Error()))
+				return
+			}
+
+			// Check if OTP and username are valid.
+			usernameMatch := subtle.ConstantTimeCompare(usernameHash[:], expectedUsernameHash[:]) == 1
+			if !usernameMatch {
+				sendFailureResponse(w, NewFailureResponse(http.StatusUnauthorized, "Username does not match with the database!"))
+				return
+			}
+			if !validOTP {
+				sendFailureResponse(w, NewFailureResponse(http.StatusUnauthorized, "Invalid token, wrong TOTP code!"))
+				return
+			}
+
+			// If successful, dump the user data and everything.
+			responseData := struct {
+				OTP          string `json:"otp"`
+				User         string `json:"user"`
+				OK           bool   `json:"ok"`
+				ValidOTP     bool   `json:"validOTP"`
+				SharedSecret string `json:"sharedSecret"`
+				VerifyTime   int64  `json:"verifyTime"`
+			}{
+				OTP:          password,
+				User:         username,
+				OK:           ok,
+				ValidOTP:     validOTP,
+				SharedSecret: sharedSecret,
+				VerifyTime:   time.Now().Unix(),
+			}
+			sendSuccessResponse(w, NewSuccessResponse(http.StatusOK, "OTP and user successfully verified!", responseData))
 		})
 
 		// Declare method not allowed as a fallback.
