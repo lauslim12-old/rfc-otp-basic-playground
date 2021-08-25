@@ -1,13 +1,17 @@
 package application
 
 import (
+	"encoding/base32"
 	"encoding/json"
 	"log"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/pquerna/otp"
+	"github.com/pquerna/otp/totp"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -254,5 +258,75 @@ func TestAuthenticationHandler(t *testing.T) {
 
 			assert.Equal(t, tt.expectedStatus, w.Code)
 		})
+	}
+}
+
+func TestVerifyHandler(t *testing.T) {
+	handler := Configure()
+	ts := httptest.NewServer(handler)
+	defer ts.Close()
+
+	testSharedSecret := base32.StdEncoding.EncodeToString([]byte("kaedeKIMURA"))
+	defaultOTP, err := totp.GenerateCodeCustom(testSharedSecret, time.Now(), totp.ValidateOpts{
+		Period:    30,
+		Skew:      1,
+		Digits:    10,
+		Algorithm: otp.AlgorithmSHA512,
+	})
+	if err != nil {
+		log.Fatal(err.Error())
+	}
+
+	failureTests := []struct {
+		name           string
+		input          string
+		expectedBody   *FailureResponse
+		expectedStatus int
+		withHeader     bool
+	}{
+		{
+			name:           "test_without_header",
+			input:          "{}",
+			expectedBody:   NewFailureResponse(http.StatusUnauthorized, "Please provide an 'Authorization' header!"),
+			expectedStatus: http.StatusUnauthorized,
+			withHeader:     false,
+		},
+	}
+
+	successTests := []struct {
+		name           string
+		username       string
+		password       string
+		expectedStatus int
+	}{
+		{
+			name:           "test_success_verify",
+			username:       "kaede",
+			password:       defaultOTP,
+			expectedStatus: http.StatusOK,
+		},
+	}
+
+	for _, tt := range failureTests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := httptest.NewRequest(http.MethodPost, "/api/v1/verify", strings.NewReader(tt.input))
+			w := httptest.NewRecorder()
+			if tt.withHeader {
+				r.Header.Set("Authorization", "XXX")
+			}
+			handler.ServeHTTP(w, r)
+
+			assert.Equal(t, tt.expectedStatus, w.Code)
+			assert.JSONEq(t, structToJSON(tt.expectedBody), w.Body.String())
+		})
+	}
+
+	for _, tt := range successTests {
+		r := httptest.NewRequest(http.MethodPost, "/api/v1/verify", nil)
+		w := httptest.NewRecorder()
+		r.SetBasicAuth(tt.username, tt.password)
+		handler.ServeHTTP(w, r)
+
+		assert.Equal(t, tt.expectedStatus, w.Code)
 	}
 }
