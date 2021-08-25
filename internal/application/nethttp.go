@@ -11,17 +11,19 @@ import (
 
 // SuccessResponse is used to handle successful requests.
 type SuccessResponse struct {
-	Status  string `json:"status"`
-	Code    int    `json:"code"`
-	Message string `json:"message"`
+	Status  string      `json:"status"`
+	Code    int         `json:"code"`
+	Message string      `json:"message"`
+	Data    interface{} `json:"data,omitempty"`
 }
 
 // NewSuccessResponse is used to create a default, new success response.
-func NewSuccessResponse(code int, message string) *SuccessResponse {
+func NewSuccessResponse(code int, message string, data interface{}) *SuccessResponse {
 	return &SuccessResponse{
 		Status:  "success",
 		Code:    code,
 		Message: message,
+		Data:    data,
 	}
 }
 
@@ -79,7 +81,7 @@ func Configure() http.Handler {
 	r.Route("/api/v1", func(r chi.Router) {
 		// Sample GET request.
 		r.Get("/", func(w http.ResponseWriter, r *http.Request) {
-			res := NewSuccessResponse(http.StatusOK, "Welcome to 'net/http' API!")
+			res := NewSuccessResponse(http.StatusOK, "Welcome to 'net/http' API!", nil)
 			sendSuccessResponse(w, res)
 		})
 

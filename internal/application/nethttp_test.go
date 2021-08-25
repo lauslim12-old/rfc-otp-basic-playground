@@ -59,7 +59,7 @@ func TestGeneralHandlers(t *testing.T) {
 			method:         http.MethodGet,
 			route:          "/api/v1",
 			expectedStatus: http.StatusOK,
-			expectedBody:   NewSuccessResponse(http.StatusOK, "Welcome to 'net/http' API!"),
+			expectedBody:   NewSuccessResponse(http.StatusOK, "Welcome to 'net/http' API!", nil),
 		},
 	}
 
