@@ -15,6 +15,7 @@ jobs:
         run: |
           GO_VERSION=`sed -n '3p' go.mod | awk '{print $2}'`
           echo "GO_VERSION=${GO_VERSION}" >> $GITHUB_ENV
+
       - name: Set up Go
         uses: actions/setup-go@v2
         with:
