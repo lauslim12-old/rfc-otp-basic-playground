@@ -10,6 +10,11 @@ build:
 format:
 	test -z $(gofmt -l .)
 
-.PHONY:
+.PHONY: test
 test:
 	go test -v -coverpkg ./internal/otp ./internal/otp
+	go test -v -coverpkg ./internal/application ./internal/application
+
+.PHONY: e2e
+e2e:
+	sh ./scripts/e2e-testing.sh
