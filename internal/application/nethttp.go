@@ -202,6 +202,7 @@ func Configure() http.Handler {
 			})
 			if err != nil {
 				sendFailureResponse(w, NewFailureResponse(http.StatusInternalServerError, err.Error()))
+				return
 			}
 
 			// Make a response body. This is for development only. Production will send the OTP via other methods.
