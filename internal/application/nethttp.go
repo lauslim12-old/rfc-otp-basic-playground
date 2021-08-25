@@ -1,6 +1,10 @@
 package application
 
 import (
+	"crypto/sha256"
+	"crypto/subtle"
+	"encoding/base32"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -11,6 +15,8 @@ import (
 
 	"github.com/go-chi/chi"
 	"github.com/go-chi/chi/middleware"
+	"github.com/pquerna/otp"
+	"github.com/pquerna/otp/totp"
 )
 
 // SuccessResponse is used to handle successful requests.
@@ -45,6 +51,12 @@ func NewFailureResponse(code int, message string) *FailureResponse {
 		Code:    code,
 		Message: message,
 	}
+}
+
+// AuthRequestBody is to create the basic type of an incoming authentication request body.
+type AuthRequestBody struct {
+	Username string `json:"username"`
+	Password string `json:"password"`
 }
 
 // Utility function to send succesful response.
@@ -151,6 +163,68 @@ func Configure() http.Handler {
 		r.Get("/", func(w http.ResponseWriter, r *http.Request) {
 			res := NewSuccessResponse(http.StatusOK, "Welcome to 'net/http' API!", nil)
 			sendSuccessResponse(w, res)
+		})
+
+		// Sample POST request that returns an OTP.
+		r.Post("/", func(w http.ResponseWriter, r *http.Request) {
+			authRequestBody := &AuthRequestBody{}
+			failureResponse := decodeJSONBody(w, r, authRequestBody)
+			if failureResponse != nil {
+				sendFailureResponse(w, failureResponse)
+				return
+			}
+
+			// Calculate SHA256 hash to prevent 'ConstantTimeCompare' leaking the length of passwords / usernames.
+			// SHA256 is used to quickly generate and verify the hashes - SHA512 would take a bit longer.
+			usernameHash := sha256.Sum256([]byte(authRequestBody.Username))
+			passwordHash := sha256.Sum256([]byte(authRequestBody.Password))
+			expectedUsernameHash := sha256.Sum256([]byte("kaede"))
+			expectedPasswordHash := sha256.Sum256([]byte("kaede"))
+
+			// Compare if username and passwords match.
+			// Let's claim that the username and password are 'kaede' for now.
+			usernameMatch := subtle.ConstantTimeCompare(usernameHash[:], expectedUsernameHash[:]) == 1
+			passwordMatch := subtle.ConstantTimeCompare(passwordHash[:], expectedPasswordHash[:]) == 1
+			if !usernameMatch || !passwordMatch {
+				sendFailureResponse(w, NewFailureResponse(http.StatusUnauthorized, "Username or password do not match!"))
+				return
+			}
+
+			// After this, we should check Redis and verify if there is a cache with this user.
+			// If not, simply send them an OTP. The secret, same as above, is 'kaedeKIMURA' for now.
+			// 'KIMURA' is the shared secret, 'kaede' is the username. We concatenate them together.
+			sharedSecret := base32.StdEncoding.EncodeToString([]byte(fmt.Sprintf("%s%s", authRequestBody.Username, "KIMURA")))
+			otp, err := totp.GenerateCodeCustom(sharedSecret, time.Now(), totp.ValidateOpts{
+				Period:    30,
+				Skew:      1,
+				Digits:    10,
+				Algorithm: otp.AlgorithmSHA512,
+			})
+			if err != nil {
+				sendFailureResponse(w, NewFailureResponse(http.StatusInternalServerError, err.Error()))
+			}
+
+			// Make a response body. This is for development only. Production will send the OTP via other methods.
+			basicAuthInformation := base64.StdEncoding.EncodeToString([]byte(fmt.Sprintf("%s:%s", authRequestBody.Username, otp)))
+			basicAuthContent := fmt.Sprintf("%s%s", "Basic ", basicAuthInformation)
+			decodedBasicAuth, err := base64.StdEncoding.DecodeString(basicAuthInformation)
+			if err != nil {
+				sendFailureResponse(w, NewFailureResponse(http.StatusInternalServerError, err.Error()))
+			}
+
+			// Anonymous struct.
+			responseData := struct {
+				OTP              string `json:"otp"`
+				Username         string `json:"user"`
+				BasicAuthContent string `json:"basicAuth"`
+				DecodedBasicAuth string `json:"decodedBasic"`
+			}{
+				OTP:              otp,
+				Username:         authRequestBody.Username,
+				BasicAuthContent: basicAuthContent,
+				DecodedBasicAuth: string(decodedBasicAuth),
+			}
+			sendSuccessResponse(w, NewSuccessResponse(http.StatusOK, "Sucessfully logged in!", responseData))
 		})
 
 		// Declare method not allowed as a fallback.
