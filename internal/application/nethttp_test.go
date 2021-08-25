@@ -189,3 +189,70 @@ func TestDecodeJSONBody(t *testing.T) {
 		})
 	}
 }
+
+func TestAuthenticationHandler(t *testing.T) {
+	handler := Configure()
+	ts := httptest.NewServer(handler)
+	defer ts.Close()
+
+	failureTests := []struct {
+		name         string
+		method       string
+		route        string
+		input        string
+		expectedBody *FailureResponse
+	}{
+		{
+			name:         "test_wrong_username_and_password",
+			method:       http.MethodPost,
+			route:        "/api/v1",
+			input:        `{"username":"kimura","password":"kaori"}`,
+			expectedBody: NewFailureResponse(http.StatusUnauthorized, "Username or password do not match!"),
+		},
+		{
+			name:         "test_bad_json",
+			method:       http.MethodPost,
+			route:        "/api/v1",
+			input:        "{}{}",
+			expectedBody: NewFailureResponse(http.StatusBadRequest, "Request body must only contain a single JSON object!"),
+		},
+	}
+
+	successTests := []struct {
+		name           string
+		method         string
+		route          string
+		input          string
+		expectedStatus int
+	}{
+		{
+			name:           "test_success_login",
+			method:         http.MethodPost,
+			route:          "/api/v1",
+			input:          `{"username":"kaede","password":"kaede"}`,
+			expectedStatus: http.StatusOK,
+		},
+	}
+
+	for _, tt := range failureTests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := httptest.NewRequest(tt.method, tt.route, strings.NewReader(tt.input))
+			w := httptest.NewRecorder()
+			r.Header.Set("Content-Type", "application/json")
+			handler.ServeHTTP(w, r)
+
+			assert.JSONEq(t, structToJSON(tt.expectedBody), w.Body.String())
+		})
+	}
+
+	for _, tt := range successTests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := httptest.NewRequest(tt.method, tt.route, strings.NewReader(tt.input))
+			w := httptest.NewRecorder()
+			r.Header.Set("Content-Type", "application/json")
+			handler.ServeHTTP(w, r)
+
+			assert.Equal(t, tt.expectedStatus, w.Code)
+		})
+	}
+}
