@@ -109,3 +109,50 @@ func TestAll(t *testing.T) {
 		assert.Equal(t, expectedOutput, res)
 	})
 }
+
+func TestBlacklistOTP(t *testing.T) {
+	rdb, mock := redismock.NewClientMock()
+	service := New(rdb, sessionExpiration)
+
+	t.Run("test_blacklist_otp_success", func(t *testing.T) {
+		mock.ExpectSAdd("blacklisted_otps", "123").SetVal(1)
+
+		err := service.BlacklistOTP("123")
+		if err != nil {
+			log.Fatal(err.Error())
+		}
+
+		assert.Nil(t, err)
+	})
+
+	t.Run("test_blacklist_otp_fail", func(t *testing.T) {
+		mock.ExpectSAdd("blacklisted_otps", "123").SetErr(errors.New("An error!"))
+
+		err := service.BlacklistOTP("123")
+		assert.NotNil(t, err)
+	})
+}
+
+func TestCheckBlacklistOTP(t *testing.T) {
+	rdb, mock := redismock.NewClientMock()
+	service := New(rdb, sessionExpiration)
+
+	t.Run("test_check_blacklist_otp_success", func(t *testing.T) {
+		mock.ExpectSIsMember("blacklisted_otps", "123").SetVal(true)
+
+		res, err := service.CheckBlacklistOTP("123")
+		if err != nil {
+			log.Fatal(err.Error())
+		}
+
+		assert.Nil(t, err)
+		assert.Equal(t, true, res)
+	})
+
+	t.Run("test_check_blacklist_otp_fail", func(t *testing.T) {
+		mock.ExpectSIsMember("blacklisted_otps", "123").SetErr(errors.New("An error!"))
+
+		_, err := service.CheckBlacklistOTP("123")
+		assert.NotNil(t, err)
+	})
+}
