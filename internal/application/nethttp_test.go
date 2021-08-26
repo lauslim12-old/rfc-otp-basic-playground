@@ -1,3 +1,4 @@
+// In this package, we are using Miniredis as we expect all of the commands to function properly without errors.
 package application
 
 import (
@@ -10,10 +11,26 @@ import (
 	"testing"
 	"time"
 
+	"github.com/alicebob/miniredis/v2"
+	"github.com/go-redis/redis/v8"
 	"github.com/pquerna/otp"
 	"github.com/pquerna/otp/totp"
 	"github.com/stretchr/testify/assert"
 )
+
+// Mock Redis dependency.
+func initializeTestRedis() *redis.Client {
+	mr, err := miniredis.Run()
+	if err != nil {
+		log.Fatal(err.Error())
+	}
+
+	client := redis.NewClient(&redis.Options{
+		Addr: mr.Addr(),
+	})
+
+	return client
+}
 
 func structToJSON(object interface{}) string {
 	out, err := json.Marshal(object)
@@ -25,7 +42,8 @@ func structToJSON(object interface{}) string {
 }
 
 func TestGeneralHandlers(t *testing.T) {
-	handler := Configure()
+	rdb := initializeTestRedis()
+	handler := Configure(rdb)
 	testServer := httptest.NewServer(handler)
 	defer testServer.Close()
 
@@ -94,7 +112,8 @@ func TestGeneralHandlers(t *testing.T) {
 }
 
 func TestDecodeJSONBody(t *testing.T) {
-	handler := Configure()
+	rdb := initializeTestRedis()
+	handler := Configure(rdb)
 	ts := httptest.NewServer(handler)
 	defer ts.Close()
 
@@ -195,7 +214,8 @@ func TestDecodeJSONBody(t *testing.T) {
 }
 
 func TestAuthenticationHandler(t *testing.T) {
-	handler := Configure()
+	rdb := initializeTestRedis()
+	handler := Configure(rdb)
 	ts := httptest.NewServer(handler)
 	defer ts.Close()
 
@@ -262,7 +282,8 @@ func TestAuthenticationHandler(t *testing.T) {
 }
 
 func TestVerifyHandler(t *testing.T) {
-	handler := Configure()
+	rdb := initializeTestRedis()
+	handler := Configure(rdb)
 	ts := httptest.NewServer(handler)
 	defer ts.Close()
 

@@ -15,6 +15,8 @@ import (
 
 	"github.com/go-chi/chi"
 	"github.com/go-chi/chi/middleware"
+	"github.com/go-redis/redis/v8"
+	"github.com/lauslim12/fullstack-otp/internal/session"
 	"github.com/pquerna/otp"
 	"github.com/pquerna/otp/totp"
 )
@@ -138,7 +140,7 @@ func decodeJSONBody(w http.ResponseWriter, r *http.Request, dst interface{}) *Fa
 }
 
 // Configure is used to configure the application (server is initialized in 'main').
-func Configure() http.Handler {
+func Configure(rdb *redis.Client) http.Handler {
 	// Create a Chi instance.
 	r := chi.NewRouter()
 
@@ -256,7 +258,7 @@ func Configure() http.Handler {
 				Algorithm: otp.AlgorithmSHA512,
 			})
 			if err != nil && err == otp.ErrValidateInputInvalidLength {
-				sendFailureResponse(w, NewFailureResponse(http.StatusBadRequest, "Your OTP does not conform to the length requirements of the validation server."))
+				sendFailureResponse(w, NewFailureResponse(http.StatusBadRequest, "Your OTP does not conform to the length requirements of the validation server!"))
 				return
 			}
 			if err != nil {
@@ -275,6 +277,20 @@ func Configure() http.Handler {
 				return
 			}
 
+			// Set user cache.
+			sess := session.New(rdb, time.Minute*15)
+			sessionKey, err := session.GenerateSessionID(32)
+			if err != nil {
+				sendFailureResponse(w, NewFailureResponse(http.StatusInternalServerError, err.Error()))
+				return
+			}
+
+			err = sess.Set(sessionKey, username)
+			if err != nil {
+				sendFailureResponse(w, NewFailureResponse(http.StatusInternalServerError, err.Error()))
+				return
+			}
+
 			// If successful, dump the user data and everything.
 			responseData := struct {
 				OTP          string `json:"otp"`
@@ -282,6 +298,7 @@ func Configure() http.Handler {
 				OK           bool   `json:"ok"`
 				ValidOTP     bool   `json:"validOTP"`
 				SharedSecret string `json:"sharedSecret"`
+				SessionKey   string `json:"sessionKey"`
 				VerifyTime   int64  `json:"verifyTime"`
 			}{
 				OTP:          password,
@@ -289,8 +306,18 @@ func Configure() http.Handler {
 				OK:           ok,
 				ValidOTP:     validOTP,
 				SharedSecret: sharedSecret,
+				SessionKey:   sessionKey,
 				VerifyTime:   time.Now().Unix(),
 			}
+
+			// Send back response.
+			http.SetCookie(w, &http.Cookie{
+				Name:     "sess",
+				Value:    sessionKey,
+				Path:     "/",
+				Expires:  time.Now().Add(15 * time.Minute),
+				HttpOnly: true,
+			})
 			sendSuccessResponse(w, NewSuccessResponse(http.StatusOK, "OTP and user successfully verified!", responseData))
 		})
 
