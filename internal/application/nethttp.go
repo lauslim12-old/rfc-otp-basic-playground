@@ -283,8 +283,26 @@ func Configure(rdb *redis.Client) http.Handler {
 					return
 				}
 
-				// Set user cache.
+				// Check if OTP is blacklisted.
 				sess := session.New(rdb, time.Minute*15)
+				blacklistedOTP, err := sess.CheckBlacklistOTP(password)
+				if err != nil {
+					sendFailureResponse(w, NewFailureResponse(http.StatusInternalServerError, err.Error()))
+					return
+				}
+				if blacklistedOTP {
+					sendFailureResponse(w, NewFailureResponse(http.StatusBadRequest, "The OTP that you entered has been used before!"))
+					return
+				}
+
+				// Blacklist OTP.
+				err = sess.BlacklistOTP(password)
+				if err != nil {
+					sendFailureResponse(w, NewFailureResponse(http.StatusInternalServerError, err.Error()))
+					return
+				}
+
+				// Set user cache.
 				sessionKey, err := session.GenerateSessionID(32)
 				if err != nil {
 					sendFailureResponse(w, NewFailureResponse(http.StatusInternalServerError, err.Error()))

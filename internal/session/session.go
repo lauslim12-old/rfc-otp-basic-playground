@@ -106,3 +106,23 @@ func (s *Service) All() ([]KeyAndUser, error) {
 
 	return keysAndUsers, nil
 }
+
+// BlacklistOTP is used to blacklist OTPs in the Redis database, according to the RFC 6238.
+func (s *Service) BlacklistOTP(otp string) error {
+	_, err := s.redis.SAdd(ctx, "blacklisted_otps", otp).Result()
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// CheckBlacklistOTP is used to check if the OTP has been used before.
+func (s *Service) CheckBlacklistOTP(otp string) (bool, error) {
+	res, err := s.redis.SIsMember(ctx, "blacklisted_otps", otp).Result()
+	if err != nil {
+		return false, err
+	}
+
+	return res, nil
+}
