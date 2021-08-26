@@ -1,6 +1,7 @@
 package application
 
 import (
+	"context"
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/base32"
@@ -60,6 +61,9 @@ type AuthRequestBody struct {
 	Username string `json:"username"`
 	Password string `json:"password"`
 }
+
+// ContextKey is used to pass around userID in requests.
+type ContextKey struct{}
 
 // Utility function to send succesful response.
 func sendSuccessResponse(w http.ResponseWriter, successResponse *SuccessResponse) {
@@ -167,158 +171,237 @@ func Configure(rdb *redis.Client) http.Handler {
 			sendSuccessResponse(w, res)
 		})
 
-		// Login route.
-		r.Post("/", func(w http.ResponseWriter, r *http.Request) {
-			authRequestBody := &AuthRequestBody{}
-			failureResponse := decodeJSONBody(w, r, authRequestBody)
-			if failureResponse != nil {
-				sendFailureResponse(w, failureResponse)
-				return
-			}
+		// Subrouter: '/api/v1/auth'.
+		r.Route("/auth", func(r chi.Router) {
+			// Login route.
+			r.Post("/login", func(w http.ResponseWriter, r *http.Request) {
+				authRequestBody := &AuthRequestBody{}
+				failureResponse := decodeJSONBody(w, r, authRequestBody)
+				if failureResponse != nil {
+					sendFailureResponse(w, failureResponse)
+					return
+				}
 
-			// Calculate SHA256 hash to prevent 'ConstantTimeCompare' leaking the length of passwords / usernames.
-			// SHA256 is used to quickly generate and verify the hashes - SHA512 would take a bit longer.
-			usernameHash := sha256.Sum256([]byte(authRequestBody.Username))
-			passwordHash := sha256.Sum256([]byte(authRequestBody.Password))
-			expectedUsernameHash := sha256.Sum256([]byte("kaede"))
-			expectedPasswordHash := sha256.Sum256([]byte("kaede"))
+				// Calculate SHA256 hash to prevent 'ConstantTimeCompare' leaking the length of passwords / usernames.
+				// SHA256 is used to quickly generate and verify the hashes - SHA512 would take a bit longer.
+				usernameHash := sha256.Sum256([]byte(authRequestBody.Username))
+				passwordHash := sha256.Sum256([]byte(authRequestBody.Password))
+				expectedUsernameHash := sha256.Sum256([]byte("kaede"))
+				expectedPasswordHash := sha256.Sum256([]byte("kaede"))
 
-			// Compare if username and passwords match.
-			// Let's claim that the username and password are 'kaede' for now.
-			usernameMatch := subtle.ConstantTimeCompare(usernameHash[:], expectedUsernameHash[:]) == 1
-			passwordMatch := subtle.ConstantTimeCompare(passwordHash[:], expectedPasswordHash[:]) == 1
-			if !usernameMatch || !passwordMatch {
-				sendFailureResponse(w, NewFailureResponse(http.StatusUnauthorized, "Username or password do not match!"))
-				return
-			}
+				// Compare if username and passwords match.
+				// Let's claim that the username and password are 'OTP_EXPECTED_USERNAME/PASSWORD' for now.
+				usernameMatch := subtle.ConstantTimeCompare(usernameHash[:], expectedUsernameHash[:]) == 1
+				passwordMatch := subtle.ConstantTimeCompare(passwordHash[:], expectedPasswordHash[:]) == 1
+				if !usernameMatch || !passwordMatch {
+					sendFailureResponse(w, NewFailureResponse(http.StatusUnauthorized, "Username or password do not match!"))
+					return
+				}
 
-			// After this, we should check Redis and verify if there is a cache with this user.
-			// If not, simply send them an OTP. The secret, same as above, is 'kaedeKIMURA' for now.
-			// 'KIMURA' is the shared secret, 'kaede' is the username. We concatenate them together.
-			sharedSecret := base32.StdEncoding.EncodeToString([]byte(fmt.Sprintf("%s%s", authRequestBody.Username, "KIMURA")))
-			otp, err := totp.GenerateCodeCustom(sharedSecret, time.Now(), totp.ValidateOpts{
-				Period:    30,
-				Skew:      1,
-				Digits:    10,
-				Algorithm: otp.AlgorithmSHA512,
+				// After this, we should check Redis and verify if there is a cache with this user.
+				// If not, simply send them an OTP. The secret, same as above, is 'kaedeKIMURA' for now.
+				// 'KIMURA' is the shared secret, 'kaede' is the username. We concatenate them together.
+				sharedSecret := base32.StdEncoding.EncodeToString([]byte(fmt.Sprintf("%s%s", authRequestBody.Username, "KIMURA")))
+				otp, err := totp.GenerateCodeCustom(sharedSecret, time.Now(), totp.ValidateOpts{
+					Period:    30,
+					Skew:      1,
+					Digits:    10,
+					Algorithm: otp.AlgorithmSHA512,
+				})
+				if err != nil {
+					sendFailureResponse(w, NewFailureResponse(http.StatusBadRequest, err.Error()))
+					return
+				}
+
+				// Make a response body. This is for development only. Production will send the OTP via other methods.
+				basicAuthInformation := base64.StdEncoding.EncodeToString([]byte(fmt.Sprintf("%s:%s", authRequestBody.Username, otp)))
+				basicAuthContent := fmt.Sprintf("%s%s", "Basic ", basicAuthInformation)
+				decodedBasicAuth, err := base64.StdEncoding.DecodeString(basicAuthInformation)
+				if err != nil {
+					sendFailureResponse(w, NewFailureResponse(http.StatusInternalServerError, err.Error()))
+					return
+				}
+
+				// Anonymous struct.
+				responseData := struct {
+					OTP              string `json:"otp"`
+					Username         string `json:"user"`
+					BasicAuthContent string `json:"basicAuth"`
+					DecodedBasicAuth string `json:"decodedBasic"`
+					SharedSecret     string `json:"sharedSecret"`
+					LoginTime        int64  `json:"loginTime"`
+				}{
+					OTP:              otp,
+					Username:         authRequestBody.Username,
+					BasicAuthContent: basicAuthContent,
+					DecodedBasicAuth: string(decodedBasicAuth),
+					SharedSecret:     sharedSecret,
+					LoginTime:        time.Now().Unix(),
+				}
+				sendSuccessResponse(w, NewSuccessResponse(http.StatusOK, "Sucessfully logged in!", responseData))
 			})
-			if err != nil {
-				sendFailureResponse(w, NewFailureResponse(http.StatusBadRequest, err.Error()))
-				return
-			}
 
-			// Make a response body. This is for development only. Production will send the OTP via other methods.
-			basicAuthInformation := base64.StdEncoding.EncodeToString([]byte(fmt.Sprintf("%s:%s", authRequestBody.Username, otp)))
-			basicAuthContent := fmt.Sprintf("%s%s", "Basic ", basicAuthInformation)
-			decodedBasicAuth, err := base64.StdEncoding.DecodeString(basicAuthInformation)
-			if err != nil {
-				sendFailureResponse(w, NewFailureResponse(http.StatusInternalServerError, err.Error()))
-				return
-			}
+			// Verification route.
+			r.Post("/verification", func(w http.ResponseWriter, r *http.Request) {
+				// Get the Authorization Header.
+				username, password, ok := r.BasicAuth()
+				if !ok {
+					w.Header().Set("WWW-Authenticate", `Basic realm="restricted", charset="UTF-8"`)
+					sendFailureResponse(w, NewFailureResponse(http.StatusUnauthorized, "Please provide an 'Authorization' header!"))
+					return
+				}
 
-			// Anonymous struct.
-			responseData := struct {
-				OTP              string `json:"otp"`
-				Username         string `json:"user"`
-				BasicAuthContent string `json:"basicAuth"`
-				DecodedBasicAuth string `json:"decodedBasic"`
-				SharedSecret     string `json:"sharedSecret"`
-				LoginTime        int64  `json:"loginTime"`
-			}{
-				OTP:              otp,
-				Username:         authRequestBody.Username,
-				BasicAuthContent: basicAuthContent,
-				DecodedBasicAuth: string(decodedBasicAuth),
-				SharedSecret:     sharedSecret,
-				LoginTime:        time.Now().Unix(),
-			}
-			sendSuccessResponse(w, NewSuccessResponse(http.StatusOK, "Sucessfully logged in!", responseData))
+				// Calculate SHA256 of the 'username'.
+				usernameHash := sha256.Sum256([]byte(username))
+				expectedUsernameHash := sha256.Sum256([]byte("kaede"))
+
+				// Verify OTP.
+				sharedSecret := base32.StdEncoding.EncodeToString([]byte(fmt.Sprintf("%sKIMURA", username)))
+				validOTP, err := totp.ValidateCustom(password, sharedSecret, time.Now(), totp.ValidateOpts{
+					Period:    30,
+					Skew:      1,
+					Digits:    10,
+					Algorithm: otp.AlgorithmSHA512,
+				})
+				if err != nil && err == otp.ErrValidateInputInvalidLength {
+					sendFailureResponse(w, NewFailureResponse(http.StatusBadRequest, "Your OTP does not conform to the length requirements of the validation server!"))
+					return
+				}
+				if err != nil {
+					sendFailureResponse(w, NewFailureResponse(http.StatusBadRequest, err.Error()))
+					return
+				}
+
+				// Check if OTP and username are valid.
+				usernameMatch := subtle.ConstantTimeCompare(usernameHash[:], expectedUsernameHash[:]) == 1
+				if !usernameMatch {
+					sendFailureResponse(w, NewFailureResponse(http.StatusUnauthorized, "Username does not match with the database!"))
+					return
+				}
+				if !validOTP {
+					sendFailureResponse(w, NewFailureResponse(http.StatusUnauthorized, "Invalid token, wrong TOTP code!"))
+					return
+				}
+
+				// Check if OTP is blacklisted.
+				sess := session.New(rdb, time.Minute*15)
+				blacklistedOTP, err := sess.CheckBlacklistOTP(password)
+				if err != nil {
+					sendFailureResponse(w, NewFailureResponse(http.StatusInternalServerError, err.Error()))
+					return
+				}
+				if blacklistedOTP {
+					sendFailureResponse(w, NewFailureResponse(http.StatusBadRequest, "The OTP that you entered has been used before!"))
+					return
+				}
+
+				// Blacklist OTP.
+				err = sess.BlacklistOTP(password)
+				if err != nil {
+					sendFailureResponse(w, NewFailureResponse(http.StatusInternalServerError, err.Error()))
+					return
+				}
+
+				// Set user cache.
+				sessionKey, err := session.GenerateSessionID(32)
+				if err != nil {
+					sendFailureResponse(w, NewFailureResponse(http.StatusInternalServerError, err.Error()))
+					return
+				}
+
+				err = sess.Set(sessionKey, username)
+				if err != nil {
+					sendFailureResponse(w, NewFailureResponse(http.StatusInternalServerError, err.Error()))
+					return
+				}
+
+				// If successful, dump the user data and everything.
+				responseData := struct {
+					OTP          string `json:"otp"`
+					User         string `json:"user"`
+					OK           bool   `json:"ok"`
+					ValidOTP     bool   `json:"validOTP"`
+					SharedSecret string `json:"sharedSecret"`
+					SessionKey   string `json:"sessionKey"`
+					VerifyTime   int64  `json:"verifyTime"`
+				}{
+					OTP:          password,
+					User:         username,
+					OK:           ok,
+					ValidOTP:     validOTP,
+					SharedSecret: sharedSecret,
+					SessionKey:   sessionKey,
+					VerifyTime:   time.Now().Unix(),
+				}
+
+				// Send back response.
+				http.SetCookie(w, &http.Cookie{
+					Name:     "sess",
+					Value:    sessionKey,
+					Path:     "/",
+					Expires:  time.Now().Add(15 * time.Minute),
+					HttpOnly: true,
+				})
+				sendSuccessResponse(w, NewSuccessResponse(http.StatusOK, "OTP and user successfully verified!", responseData))
+			})
 		})
 
-		// Verification route.
-		r.Post("/verify", func(w http.ResponseWriter, r *http.Request) {
-			// Get the Authorization Header.
-			username, password, ok := r.BasicAuth()
-			if !ok {
-				w.Header().Set("WWW-Authenticate", `Basic realm="restricted", charset="UTF-8"`)
-				sendFailureResponse(w, NewFailureResponse(http.StatusUnauthorized, "Please provide an 'Authorization' header!"))
-				return
-			}
-
-			// Calculate SHA256 of the 'username'.
-			usernameHash := sha256.Sum256([]byte(username))
-			expectedUsernameHash := sha256.Sum256([]byte("kaede"))
-
-			// Verify OTP.
-			sharedSecret := base32.StdEncoding.EncodeToString([]byte(fmt.Sprintf("%sKIMURA", username)))
-			validOTP, err := totp.ValidateCustom(password, sharedSecret, time.Now(), totp.ValidateOpts{
-				Period:    30,
-				Skew:      1,
-				Digits:    10,
-				Algorithm: otp.AlgorithmSHA512,
-			})
-			if err != nil && err == otp.ErrValidateInputInvalidLength {
-				sendFailureResponse(w, NewFailureResponse(http.StatusBadRequest, "Your OTP does not conform to the length requirements of the validation server!"))
-				return
-			}
-			if err != nil {
-				sendFailureResponse(w, NewFailureResponse(http.StatusBadRequest, err.Error()))
-				return
-			}
-
-			// Check if OTP and username are valid.
-			usernameMatch := subtle.ConstantTimeCompare(usernameHash[:], expectedUsernameHash[:]) == 1
-			if !usernameMatch {
-				sendFailureResponse(w, NewFailureResponse(http.StatusUnauthorized, "Username does not match with the database!"))
-				return
-			}
-			if !validOTP {
-				sendFailureResponse(w, NewFailureResponse(http.StatusUnauthorized, "Invalid token, wrong TOTP code!"))
-				return
-			}
-
-			// Set user cache.
+		// Subrouter: '/api/v1/sessions'.
+		r.Route("/sessions", func(r chi.Router) {
 			sess := session.New(rdb, time.Minute*15)
-			sessionKey, err := session.GenerateSessionID(32)
-			if err != nil {
-				sendFailureResponse(w, NewFailureResponse(http.StatusInternalServerError, err.Error()))
-				return
-			}
 
-			err = sess.Set(sessionKey, username)
-			if err != nil {
-				sendFailureResponse(w, NewFailureResponse(http.StatusInternalServerError, err.Error()))
-				return
-			}
+			// Check authorization in Redis session.
+			r.Use(func(next http.Handler) http.Handler {
+				return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					// Check session cookie.
+					sessionKey, err := r.Cookie("sess")
+					if err != nil {
+						sendFailureResponse(w, NewFailureResponse(http.StatusBadRequest, "No session found. Please log in again!"))
+						return
+					}
 
-			// If successful, dump the user data and everything.
-			responseData := struct {
-				OTP          string `json:"otp"`
-				User         string `json:"user"`
-				OK           bool   `json:"ok"`
-				ValidOTP     bool   `json:"validOTP"`
-				SharedSecret string `json:"sharedSecret"`
-				SessionKey   string `json:"sessionKey"`
-				VerifyTime   int64  `json:"verifyTime"`
-			}{
-				OTP:          password,
-				User:         username,
-				OK:           ok,
-				ValidOTP:     validOTP,
-				SharedSecret: sharedSecret,
-				SessionKey:   sessionKey,
-				VerifyTime:   time.Now().Unix(),
-			}
+					// Check if session exists.
+					userID, err := sess.Get(sessionKey.Value)
+					if userID == "" {
+						sendFailureResponse(w, NewFailureResponse(http.StatusBadRequest, "User with your session ID is not found! Please log in again!"))
+						return
+					}
+					if err != nil {
+						sendFailureResponse(w, NewFailureResponse(http.StatusInternalServerError, err.Error()))
+						return
+					}
 
-			// Send back response.
-			http.SetCookie(w, &http.Cookie{
-				Name:     "sess",
-				Value:    sessionKey,
-				Path:     "/",
-				Expires:  time.Now().Add(15 * time.Minute),
-				HttpOnly: true,
+					// Allow next, pass user ID via context.
+					ctx := context.WithValue(r.Context(), ContextKey{}, userID)
+					next.ServeHTTP(w, r.Clone(ctx))
+				})
 			})
-			sendSuccessResponse(w, NewSuccessResponse(http.StatusOK, "OTP and user successfully verified!", responseData))
+
+			r.Get("/", func(w http.ResponseWriter, r *http.Request) {
+				// Get context and parse the value.
+				userID := r.Context().Value(ContextKey{}).(string)
+				if userID == "" {
+					sendFailureResponse(w, NewFailureResponse(http.StatusUnauthorized, "You are unauthorized to access this route!"))
+					return
+				}
+
+				// Get all sessions.
+				keys, err := sess.All()
+				if err != nil {
+					sendFailureResponse(w, NewFailureResponse(http.StatusInternalServerError, err.Error()))
+					return
+				}
+
+				// Make response body.
+				resp := struct {
+					KeyAndUsers interface{} `json:"keys"`
+					UserID      string      `json:"user"`
+				}{
+					KeyAndUsers: keys,
+					UserID:      userID,
+				}
+				sendSuccessResponse(w, NewSuccessResponse(http.StatusOK, "All of the sessions in the application.", resp))
+			})
 		})
 
 		// Declare method not allowed as a fallback.

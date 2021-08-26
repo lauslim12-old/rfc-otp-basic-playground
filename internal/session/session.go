@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/base64"
+	"fmt"
 	"time"
 
 	"github.com/go-redis/redis/v8"
@@ -16,6 +17,12 @@ var ctx = context.Background()
 type Service struct {
 	redis             *redis.Client
 	sessionExpiration time.Duration
+}
+
+// KeysAndUsers represents an object of a user and their session ID.
+type KeyAndUser struct {
+	SessionID string `json:"sessionId"`
+	UserID    string `json:"userId"`
 }
 
 // NewService creates a new service to be used to perform operations with the Redis.
@@ -42,7 +49,8 @@ func GenerateSessionID(numberOfBytes int) (string, error) {
 // Set is to set a new session ID that is connected with the user ID.
 // Redis's 'SET' can't fail.
 func (s *Service) Set(sessionID, userID string) error {
-	_, err := s.redis.Set(ctx, sessionID, userID, s.sessionExpiration).Result()
+	redisKey := fmt.Sprintf("sess:%s", sessionID)
+	_, err := s.redis.Set(ctx, redisKey, userID, s.sessionExpiration).Result()
 	if err != nil {
 		return err
 	}
@@ -52,12 +60,68 @@ func (s *Service) Set(sessionID, userID string) error {
 
 // Get is to get the user ID that is associated with the session ID.
 func (s *Service) Get(sessionID string) (string, error) {
-	res, err := s.redis.Get(ctx, sessionID).Result()
+	redisKey := fmt.Sprintf("sess:%s", sessionID)
+	res, err := s.redis.Get(ctx, redisKey).Result()
 	if err != nil && err == redis.Nil {
 		return "", nil
 	}
 	if err != nil {
 		return "", err
+	}
+
+	return res, nil
+}
+
+// All is to get all of the currently available sessions.
+func (s *Service) All() ([]KeyAndUser, error) {
+	var keysCollection []string
+	var keysAndUsers []KeyAndUser
+
+	for {
+		// Iteratively get all the keys.
+		keys, cursor, err := s.redis.Scan(ctx, 0, "sess:*", 10).Result()
+		if err != nil && err == redis.Nil {
+			return nil, nil
+		}
+		if err != nil {
+			return nil, err
+		}
+
+		// Append to this variable every time we get a new result.
+		keysCollection = append(keysCollection, keys...)
+		if cursor == 0 {
+			break
+		}
+	}
+
+	for i := 0; i < len(keysCollection); i += 1 {
+		// Get all users and append them to an object, with their session data.
+		user, err := s.redis.Get(ctx, keysCollection[i]).Result()
+		if err != nil {
+			return nil, err
+		}
+
+		keysAndUsers = append(keysAndUsers, KeyAndUser{keysCollection[i], user})
+	}
+
+	return keysAndUsers, nil
+}
+
+// BlacklistOTP is used to blacklist OTPs in the Redis database, according to the RFC 6238.
+func (s *Service) BlacklistOTP(otp string) error {
+	_, err := s.redis.SAdd(ctx, "blacklisted_otps", otp).Result()
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// CheckBlacklistOTP is used to check if the OTP has been used before.
+func (s *Service) CheckBlacklistOTP(otp string) (bool, error) {
+	res, err := s.redis.SIsMember(ctx, "blacklisted_otps", otp).Result()
+	if err != nil {
+		return false, err
 	}
 
 	return res, nil

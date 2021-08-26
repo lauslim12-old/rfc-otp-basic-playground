@@ -1,0 +1,8 @@
+# Redis
+export REDIS_ADDRESS=localhost:6379
+export REDIS_PASSWORD=
+
+# TOTP (Development)
+export OTP_SHARED_SECRET=KIMURA
+export OTP_EXPECTED_USERNAME=kaede
+export OTP_EXPECTED_PASSWORD=kaede

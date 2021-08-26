@@ -128,7 +128,7 @@ func TestDecodeJSONBody(t *testing.T) {
 		{
 			name:         "test_content_type",
 			method:       http.MethodPost,
-			route:        "/api/v1",
+			route:        "/api/v1/auth/login",
 			input:        `{"username":"kaede","password":"kaede"}`,
 			expectedBody: NewFailureResponse(http.StatusUnsupportedMediaType, "The 'Content-Type' header is not 'application/json'!"),
 			withHeader:   false,
@@ -136,7 +136,7 @@ func TestDecodeJSONBody(t *testing.T) {
 		{
 			name:         "test_json_bad_format",
 			method:       http.MethodPost,
-			route:        "/api/v1",
+			route:        "/api/v1/auth/login",
 			input:        `{"username":"kaede","password":"kaede",examplebadinput}`,
 			expectedBody: NewFailureResponse(http.StatusBadRequest, "Request body contains a badly formatted JSON at position 40!"),
 			withHeader:   true,
@@ -144,7 +144,7 @@ func TestDecodeJSONBody(t *testing.T) {
 		{
 			name:         "test_json_unexpected_eof",
 			method:       http.MethodPost,
-			route:        "/api/v1",
+			route:        "/api/v1/auth/login",
 			input:        `{"username":"kaede","password":"kaede"`,
 			expectedBody: NewFailureResponse(http.StatusBadRequest, "Request body contains a badly-formed JSON!"),
 			withHeader:   true,
@@ -152,7 +152,7 @@ func TestDecodeJSONBody(t *testing.T) {
 		{
 			name:         "test_json_wrong_data_type",
 			method:       http.MethodPost,
-			route:        "/api/v1",
+			route:        "/api/v1/auth/login",
 			input:        `{"username":"kaede","password":1234}`,
 			expectedBody: NewFailureResponse(http.StatusBadRequest, "Request body contains an invalid value for the \"password\" field at position 35!"),
 			withHeader:   true,
@@ -160,7 +160,7 @@ func TestDecodeJSONBody(t *testing.T) {
 		{
 			name:         "test_json_unknown_field",
 			method:       http.MethodPost,
-			route:        "/api/v1",
+			route:        "/api/v1/auth/login",
 			input:        `{"username":"kaede","password":"kaede","unknownAttribute":"1234"}`,
 			expectedBody: NewFailureResponse(http.StatusBadRequest, "Request body contains unknown field '\"unknownAttribute\"'!"),
 			withHeader:   true,
@@ -168,7 +168,7 @@ func TestDecodeJSONBody(t *testing.T) {
 		{
 			name:         "test_json_empty",
 			method:       http.MethodPost,
-			route:        "/api/v1",
+			route:        "/api/v1/auth/login",
 			input:        "",
 			expectedBody: NewFailureResponse(http.StatusBadRequest, "Request body must not be empty!"),
 			withHeader:   true,
@@ -176,7 +176,7 @@ func TestDecodeJSONBody(t *testing.T) {
 		{
 			name:         "test_json_too_large",
 			method:       http.MethodPost,
-			route:        "/api/v1",
+			route:        "/api/v1/auth/login",
 			input:        `{"username":"kaede","password":"kaede","password":"kaede","password":"kaede","password":"kaede","password":"kaede","password":"kaede","password":"kaede","password":"kaede","password":"kaede","password":"kaede","password":"kaede","password":"kaede","password":"kaede","password":"kaede","password":"kaede","password":"kaede","password":"kaede","password":"kaede","password":"kaede","password":"kaede","password":"kaede","password":"kaede","password":"kaede","password":"kaede","password":"kaede","password":"kaede","password":"kaede"}`,
 			expectedBody: NewFailureResponse(http.StatusRequestEntityTooLarge, "Request body must not be larger than 512 bytes!"),
 			withHeader:   true,
@@ -184,7 +184,7 @@ func TestDecodeJSONBody(t *testing.T) {
 		{
 			name:         "test_double_json",
 			method:       http.MethodPost,
-			route:        "/api/v1",
+			route:        "/api/v1/auth/login",
 			input:        "{}{}",
 			expectedBody: NewFailureResponse(http.StatusBadRequest, "Request body must only contain a single JSON object!"),
 			withHeader:   true,
@@ -192,7 +192,7 @@ func TestDecodeJSONBody(t *testing.T) {
 		{
 			name:         "test_success",
 			method:       http.MethodPost,
-			route:        "/api/v1",
+			route:        "/api/v1/auth/login",
 			input:        `{"username":"kaede","password":"kaede"}`,
 			expectedBody: nil,
 			withHeader:   true,
@@ -229,14 +229,14 @@ func TestAuthenticationHandler(t *testing.T) {
 		{
 			name:         "test_wrong_username_and_password",
 			method:       http.MethodPost,
-			route:        "/api/v1",
+			route:        "/api/v1/auth/login",
 			input:        `{"username":"kimura","password":"kaori"}`,
 			expectedBody: NewFailureResponse(http.StatusUnauthorized, "Username or password do not match!"),
 		},
 		{
 			name:         "test_bad_json",
 			method:       http.MethodPost,
-			route:        "/api/v1",
+			route:        "/api/v1/auth/login",
 			input:        "{}{}",
 			expectedBody: NewFailureResponse(http.StatusBadRequest, "Request body must only contain a single JSON object!"),
 		},
@@ -252,7 +252,7 @@ func TestAuthenticationHandler(t *testing.T) {
 		{
 			name:           "test_success_login",
 			method:         http.MethodPost,
-			route:          "/api/v1",
+			route:          "/api/v1/auth/login",
 			input:          `{"username":"kaede","password":"kaede"}`,
 			expectedStatus: http.StatusOK,
 		},
@@ -330,7 +330,7 @@ func TestVerifyHandler(t *testing.T) {
 
 	for _, tt := range failureTests {
 		t.Run(tt.name, func(t *testing.T) {
-			r := httptest.NewRequest(http.MethodPost, "/api/v1/verify", strings.NewReader(tt.input))
+			r := httptest.NewRequest(http.MethodPost, "/api/v1/auth/verification", strings.NewReader(tt.input))
 			w := httptest.NewRecorder()
 			if tt.withHeader {
 				r.Header.Set("Authorization", "XXX")
@@ -344,7 +344,7 @@ func TestVerifyHandler(t *testing.T) {
 
 	for _, tt := range successTests {
 		t.Run(tt.name, func(t *testing.T) {
-			r := httptest.NewRequest(http.MethodPost, "/api/v1/verify", nil)
+			r := httptest.NewRequest(http.MethodPost, "/api/v1/auth/verification", nil)
 			w := httptest.NewRecorder()
 			r.SetBasicAuth(tt.username, tt.password)
 			handler.ServeHTTP(w, r)
