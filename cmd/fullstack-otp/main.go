@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/go-redis/redis/v8"
 	"github.com/lauslim12/fullstack-otp/internal/application"
 )
 
@@ -25,8 +26,15 @@ func getPort() string {
 
 // Starting point, initialize server.
 func main() {
-	// HTTP server initialization.
-	server := &http.Server{Addr: getPort(), Handler: application.Configure()}
+	// Add dependency: Redis.
+	rdb := redis.NewClient(&redis.Options{
+		Addr:     "localhost:6379",
+		Password: "",
+		DB:       0,
+	})
+
+	// HTTP server initialization with dependency injection.
+	server := &http.Server{Addr: getPort(), Handler: application.Configure(rdb)}
 
 	// Prepare context for graceful shutdown.
 	serverCtx, serverStopCtx := context.WithCancel(context.Background())
