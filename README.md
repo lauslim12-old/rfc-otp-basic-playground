@@ -1,6 +1,6 @@
 # Fullstack OTP
 
-Nicholas Dwiarto's Bachelor Thesis.
+My Bachelor Thesis.
 
 Documentation will be written after the application is finished.
 
